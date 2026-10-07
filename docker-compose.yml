@@ -1,0 +1,39 @@
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: tanpit
+      POSTGRES_USER: tanpit
+      POSTGRES_PASSWORD: tanpit
+    ports:
+      - "6600:5432"
+    volumes:
+      - tanpit_5200_9200_6600_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tanpit -d tanpit"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgres://tanpit:tanpit@db:5432/tanpit
+      JWT_SECRET: tanpit-dev-secret
+      DJANGO_SECRET_KEY: tanpit-django-secret
+    ports:
+      - "9200:8770"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5200:80"
+    depends_on:
+      - backend
+
+volumes:
+  tanpit_5200_9200_6600_pg:
