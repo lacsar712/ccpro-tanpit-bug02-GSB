@@ -5,3 +5,6 @@ node_modules/
 dist/
 .vite
 db.sqlite3
+
+# 本地 sqlite 测试库
+backend/test_tanpit*.sqlite3*

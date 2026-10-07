@@ -1,9 +1,15 @@
+import math
+from typing import Any
+
 from ninja import NinjaAPI, Schema
 from ninja.errors import HttpError
 
 from pits.auth import BearerAuth, make_token
-from pits.models import Pit, User, Yard
+from pits.models import LiquorSample, Pit, User, Yard
 from pits.rules import RuleError, assert_can_set_status, latest_ph
+
+PH_MIN = 0.0
+PH_MAX = 14.0
 
 api = NinjaAPI(title="TanPit", urls_namespace="tanpit")
 auth = BearerAuth()
@@ -15,7 +21,8 @@ class LoginIn(Schema):
 
 
 class SampleIn(Schema):
-    ph: float
+    # 手工校验：非法输入要回中文 400，而不是框架默认的 422 英文报错
+    ph: Any = None
 
 
 class StatusIn(Schema):
@@ -32,6 +39,16 @@ def pit_json(pit: Pit) -> dict:
         "latestPh": latest_ph(pit),
         "sampleCount": pit.samples.count(),
     }
+
+
+def parse_ph(raw: Any) -> float:
+    is_number = isinstance(raw, (int, float)) and not isinstance(raw, bool)
+    if not is_number or (isinstance(raw, float) and math.isnan(raw)):
+        raise HttpError(400, "酸碱度必须是数字")
+    value = float(raw)
+    if math.isinf(value) or value < PH_MIN or value > PH_MAX:
+        raise HttpError(400, f"酸碱度必须在 {PH_MIN:g}～{PH_MAX:g} 之间")
+    return value
 
 
 @api.post("/auth/login")
@@ -67,16 +84,8 @@ def add_sample(request, pit_id: int, payload: SampleIn):
     pit = Pit.objects.filter(id=pit_id).first()
     if pit is None:
         raise HttpError(404, "坑不存在")
-    target = pit
-    if pit.col > 0:
-        neighbor = (
-            Pit.objects.filter(yard_id=pit.yard_id, row=pit.row, col=pit.col - 1)
-            .prefetch_related("samples")
-            .first()
-        )
-        if neighbor is not None:
-            target = neighbor
-    target.samples.create(ph=payload.ph, operator=request.auth.username)
+    value = parse_ph(payload.ph)
+    LiquorSample.objects.create(pit=pit, ph=value, operator=request.auth.username)
     pit.refresh_from_db()
     return pit_json(pit)
 

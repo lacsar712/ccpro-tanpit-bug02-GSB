@@ -91,19 +91,24 @@ class TanYard extends LitElement {
   async writePh() {
     this.err = "";
     try {
-      this.picked = await api(`/api/pits/${this.picked.id}/samples`, {
+      const updated = await api(`/api/pits/${this.picked.id}/samples`, {
         method: "POST",
         body: JSON.stringify({ ph: Number(this.ph) }),
       });
-      // 只刷新抽屉，场地图贴片仍卡旧 latestPh
+      this.picked = updated;
+      // 同步场地图，色块上的酸碱贴片跟着本次读数变
+      this.board = {
+        ...this.board,
+        pits: this.board.pits.map((p) => (p.id === updated.id ? updated : p)),
+      };
     } catch (ex) {
       this.err = ex.message;
     }
   }
 
-  pickColPit(pit, colPits, idx) {
-    const off = colPits[(idx - 1 + colPits.length) % colPits.length] || pit;
-    this.picked = off;
+  pickColPit(pit) {
+    // 点哪一列的色块，抽屉就开哪一口坑（横向滚动后同样如此）
+    this.picked = pit;
   }
 
   async setStatus(status) {
@@ -145,9 +150,9 @@ class TanYard extends LitElement {
           const colPits = this.board.pits.filter((p) => p.row === row).sort((a, b) => a.col - b.col);
           return html`<div class="row-strip">
             ${colPits.map(
-              (p, idx) => html`<div>
+              (p) => html`<div>
                 <div class="col-label">列 ${p.col}</div>
-                <button class="pit ${p.status}" @click=${() => this.pickColPit(p, colPits, idx)}>
+                <button class="pit ${p.status}" @click=${() => this.pickColPit(p)}>
                   <strong>${p.code}</strong><br />${LABELS[p.status]}
                   <em class="badge">${p.latestPh ?? "-"}</em>
                 </button>
