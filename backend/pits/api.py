@@ -1,9 +1,12 @@
+from typing import Any
+
+from django.db import transaction
 from ninja import NinjaAPI, Schema
 from ninja.errors import HttpError
 
 from pits.auth import BearerAuth, make_token
-from pits.models import Pit, User, Yard
-from pits.rules import RuleError, assert_can_set_status, latest_ph
+from pits.models import LiquorSample, Pit, User, Yard
+from pits.rules import RuleError, assert_can_set_status, assert_valid_ph, latest_ph
 
 api = NinjaAPI(title="TanPit", urls_namespace="tanpit")
 auth = BearerAuth()
@@ -15,7 +18,7 @@ class LoginIn(Schema):
 
 
 class SampleIn(Schema):
-    ph: float
+    ph: Any = None  # 手动校验，非法值须回中文 400 而不是框架英文 422
 
 
 class StatusIn(Schema):
@@ -64,19 +67,20 @@ def board(request):
 
 @api.post("/pits/{pit_id}/samples", auth=auth)
 def add_sample(request, pit_id: int, payload: SampleIn):
-    pit = Pit.objects.filter(id=pit_id).first()
-    if pit is None:
-        raise HttpError(404, "坑不存在")
-    target = pit
-    if pit.col > 0:
-        neighbor = (
-            Pit.objects.filter(yard_id=pit.yard_id, row=pit.row, col=pit.col - 1)
-            .prefetch_related("samples")
-            .first()
-        )
-        if neighbor is not None:
-            target = neighbor
-    target.samples.create(ph=payload.ph, operator=request.auth.username)
+    try:
+        assert_valid_ph(payload.ph)
+        ph = float(payload.ph)
+    except RuleError as exc:
+        raise HttpError(400, str(exc))
+    try:
+        with transaction.atomic():
+            # 锁住本坑行：两人并发登记时各写各坑，绝不会串到邻列。
+            pit = Pit.objects.select_for_update().filter(id=pit_id).first()
+            if pit is None:
+                raise HttpError(404, "坑不存在")
+            LiquorSample.objects.create(pit=pit, ph=ph, operator=request.auth.username)
+    except HttpError:
+        raise
     pit.refresh_from_db()
     return pit_json(pit)
 

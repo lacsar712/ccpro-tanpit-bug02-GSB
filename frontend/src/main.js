@@ -90,20 +90,28 @@ class TanYard extends LitElement {
 
   async writePh() {
     this.err = "";
+    const raw = String(this.ph ?? "").trim();
+    const value = Number(raw);
+    if (raw === "" || !Number.isFinite(value)) {
+      this.err = "酸碱度必须是有效数字";
+      return;
+    }
     try {
       this.picked = await api(`/api/pits/${this.picked.id}/samples`, {
         method: "POST",
-        body: JSON.stringify({ ph: Number(this.ph) }),
+        body: JSON.stringify({ ph: value }),
       });
-      // 只刷新抽屉，场地图贴片仍卡旧 latestPh
+      // 回库成功后重拉场地图，坑上贴片同步为该坑最新酸碱。
+      await this.refresh();
     } catch (ex) {
       this.err = ex.message;
     }
   }
 
-  pickColPit(pit, colPits, idx) {
-    const off = colPits[(idx - 1 + colPits.length) % colPits.length] || pit;
-    this.picked = off;
+  pickColPit(pit) {
+    // 点哪列的色块就开哪列那口坑，不得偏移到邻列；只动抽屉，不碰登录会话。
+    this.picked = pit;
+    this.err = "";
   }
 
   async setStatus(status) {
@@ -145,9 +153,9 @@ class TanYard extends LitElement {
           const colPits = this.board.pits.filter((p) => p.row === row).sort((a, b) => a.col - b.col);
           return html`<div class="row-strip">
             ${colPits.map(
-              (p, idx) => html`<div>
+              (p) => html`<div>
                 <div class="col-label">列 ${p.col}</div>
-                <button class="pit ${p.status}" @click=${() => this.pickColPit(p, colPits, idx)}>
+                <button class="pit ${p.status}" @click=${() => this.pickColPit(p)}>
                   <strong>${p.code}</strong><br />${LABELS[p.status]}
                   <em class="badge">${p.latestPh ?? "-"}</em>
                 </button>
